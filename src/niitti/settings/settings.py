@@ -1,8 +1,9 @@
 import functools
 import logging
+from collections.abc import Callable
 from importlib.metadata import PackageNotFoundError, metadata
 from pathlib import Path
-from typing import Any, Callable, Type, cast
+from typing import Any, cast
 
 from dotenv import find_dotenv, load_dotenv
 from platformdirs import site_config_dir, user_config_dir
@@ -163,7 +164,7 @@ class Settings(BaseSettings):
     @classmethod
     def settings_customise_sources(
         cls,
-        settings_cls: Type[BaseSettings],
+        settings_cls: type[BaseSettings],
         init_settings: PydanticBaseSettingsSource,
         env_settings: PydanticBaseSettingsSource,
         dotenv_settings: PydanticBaseSettingsSource,
@@ -193,7 +194,7 @@ class SettingsProxy:
         super().__setattr__("_getter", getter)
 
     def _get_active(self) -> Any:
-        getter = getattr(self, "_getter")
+        getter = self._getter
         active = getter()
         if active is None:
             raise RuntimeError(

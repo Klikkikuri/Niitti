@@ -10,13 +10,13 @@ from niitti.settings.settings import (
 from niitti.settings.telemetry import TelemetrySettings
 
 __all__ = [
+    "DEFAULT_APP_AUTHOR",
+    "DEFAULT_APP_NAME",
+    "LoggingSettings",
+    "SentrySettings",
     "Settings",
     "SettingsProxy",
-    "LoggingSettings",
     "TelemetrySettings",
-    "SentrySettings",
-    "DEFAULT_APP_NAME",
-    "DEFAULT_APP_AUTHOR",
     "get_package_metadata",
     "lint_yaml_settings_files",
 ]
