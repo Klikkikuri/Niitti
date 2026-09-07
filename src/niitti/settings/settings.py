@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Any, cast
 
 from dotenv import find_dotenv, load_dotenv
-from platformdirs import site_config_dir, user_config_dir
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -15,7 +14,8 @@ from pydantic_settings import (
 )
 from yaml import YAMLError, safe_load
 
-from niitti.settings.const import DEFAULT_APP_AUTHOR, DEFAULT_APP_NAME
+from niitti.paths import config_dir, site_config_dir
+from niitti.settings.const import DEFAULT_APP_NAME
 
 logger = logging.getLogger(__name__)
 
@@ -136,8 +136,8 @@ class Settings(BaseSettings):
         Can be overridden by subclasses to provide custom configuration file search paths.
         """
         pkg_name = cls.get_package_name()
-        user_cfg = Path(user_config_dir(pkg_name, DEFAULT_APP_AUTHOR), "config.yaml")
-        site_cfg = Path(site_config_dir(pkg_name, DEFAULT_APP_AUTHOR), "config.yaml")
+        user_cfg = config_dir(pkg_name) / "config.yaml"
+        site_cfg = site_config_dir(pkg_name) / "config.yaml"
 
         locations: list[Path] = [
             Path("/app/config.yaml"),
