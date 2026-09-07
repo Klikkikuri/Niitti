@@ -7,7 +7,10 @@ authors = [
     { name = "Teemu Autto", email = "teemu@rautakuu.org" }
 ]
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    # `niitti.paths` needs it, and `niitti.settings` did too without a declaration.
+    "platformdirs>=4.3.6",
+]
 
 [project.optional-dependencies]
 logging = [
