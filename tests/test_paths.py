@@ -4,11 +4,27 @@ Tests for the niitti.paths module.
 :purpose: Verify XDG resolution, environment overrides, and that no read path creates a directory.
 """
 
+import os
 import subprocess
 import sys
 import textwrap
+from pathlib import Path
 
+import pytest
 from niitti.paths import cache_dir, config_dir, data_dir, ensure_dir, site_config_dir
+
+
+@pytest.fixture(autouse=True)
+def no_inherited_overrides(monkeypatch):
+    """
+    Clear the conventional overrides, so the environment the suite runs in cannot decide a result.
+
+    A development container sets `MERI_DATA_DIR`, and a test of the XDG fall-through must not see it.
+
+    :return: None
+    """
+    for name in [name for name in os.environ if name.endswith(("_DATA_DIR", "_CACHE_DIR"))]:
+        monkeypatch.delenv(name, raising=False)
 
 
 def test_xdg_roots_are_honored(tmp_path, monkeypatch):
@@ -38,6 +54,47 @@ def test_config_and_data_dirs_do_not_collide(tmp_path, monkeypatch):
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "instance" / "data"))
 
     assert config_dir("meri") != data_dir("meri")
+
+
+def test_conventional_variable_overrides_without_being_named(tmp_path, monkeypatch):
+    """
+    Verify that `<APP>_DATA_DIR` and `<APP>_CACHE_DIR` are honored by every caller.
+
+    A container points them at its persistent mount, and the directory is that mount itself, not a service-named
+    subdirectory of it.
+
+    :return: None
+    """
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    monkeypatch.setenv("MERI_DATA_DIR", "/app/instance")
+    monkeypatch.setenv("MERI_CACHE_DIR", "/tmp/meri-cache")
+
+    assert data_dir("meri") == Path("/app/instance")
+    assert cache_dir("meri") == Path("/tmp/meri-cache")
+
+
+def test_conventional_variable_of_another_app_is_ignored(tmp_path, monkeypatch):
+    """
+    Verify that one service's override does not move another service's data.
+
+    :return: None
+    """
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    monkeypatch.setenv("MERI_DATA_DIR", "/app/instance")
+
+    assert data_dir("sulku") == tmp_path / "data" / "sulku"
+
+
+def test_named_variable_wins_over_the_conventional_one(tmp_path, monkeypatch):
+    """
+    Verify that an explicitly named variable is the one that is read.
+
+    :return: None
+    """
+    monkeypatch.setenv("LUOTSI_DATA_DIR", str(tmp_path / "conventional"))
+    monkeypatch.setenv("MODEL_DIR", str(tmp_path / "named"))
+
+    assert data_dir("luotsi", env_var="MODEL_DIR") == tmp_path / "named"
 
 
 def test_environment_override_applies_to_a_missing_directory(tmp_path, monkeypatch):

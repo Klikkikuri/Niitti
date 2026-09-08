@@ -1,9 +1,9 @@
 """
 Shared filesystem locations for Klikkikuri services.
 
-Every service keeps its runtime files in XDG directories, resolved through `platformdirs`. The container images point
-`XDG_DATA_HOME` and `XDG_CACHE_HOME` into `/app/instance`, which is the only persistent location in the container, so
-no service must know a container path.
+Every service keeps its runtime files in XDG directories, resolved through `platformdirs`. A container has one
+persistent location, and mounts it as the service's data directory: `<APP>_DATA_DIR` names that directory outright,
+so `/app/instance` is the data directory rather than the root of one, and no service must know a container path.
 
 The functions here NEVER create a directory. Settings load and read paths must work on a read-only volume. Use
 :func:`ensure_dir` in the code that writes, usually a provisioning command.
@@ -27,8 +27,9 @@ def _override(env_var: str | None) -> Path | None:
     """
     Read a directory override from the environment.
 
-    The override applies also when the directory does not exist yet, because the command that provisions the data
-    creates it later.
+    An override names the directory itself, not a root to append the application name to: a deployment that says
+    where its data lives means exactly that path. It applies also when the directory does not exist yet, because
+    the command that provisions the data creates it later.
 
     :param env_var: Name of the environment variable, or `None` for no override.
     :return: The override directory, or `None` when the variable is not set or is empty.
@@ -39,26 +40,44 @@ def _override(env_var: str | None) -> Path | None:
     return Path(value).expanduser() if value else None
 
 
+def _default_var(app: str, kind: str) -> str:
+    """
+    The environment variable an application overrides one of its directories with, by convention.
+
+    :param app: Application name.
+    :param kind: `DATA` or `CACHE`.
+    :return: Variable name, such as `MERI_DATA_DIR`.
+    """
+    return f"{app.upper().replace('-', '_')}_{kind}_DIR"
+
+
 def data_dir(app: str, *, env_var: str | None = None) -> Path:
     """
     Directory for the persistent data of an application, such as downloaded models or prompt overrides.
 
+    `<APP>_DATA_DIR` overrides it, and names the directory itself. A container mounts one persistent volume and
+    points the variable at it, so the data lands in `/app/instance` rather than in a service-named subdirectory
+    of a data root that the volume would have to carry as well.
+
     :param app: Application name, usually the package name.
-    :param env_var: Optional environment variable that overrides the location.
+    :param env_var: Environment variable that overrides the location. Defaults to `<APP>_DATA_DIR`.
     :return: Data directory. It is not created and can be absent.
     """
-    return _override(env_var) or Path(user_data_dir(app, DEFAULT_APP_AUTHOR))
+    return _override(env_var or _default_var(app, "DATA")) or Path(user_data_dir(app, DEFAULT_APP_AUTHOR))
 
 
 def cache_dir(app: str, *, env_var: str | None = None) -> Path:
     """
     Directory for the data of an application that the application can download or calculate again.
 
+    `<APP>_CACHE_DIR` overrides it, and names the directory itself. Nothing here has to persist, so a deployment
+    that sets nothing gets the user cache directory, wherever that is.
+
     :param app: Application name, usually the package name.
-    :param env_var: Optional environment variable that overrides the location.
+    :param env_var: Environment variable that overrides the location. Defaults to `<APP>_CACHE_DIR`.
     :return: Cache directory. It is not created and can be absent.
     """
-    return _override(env_var) or Path(user_cache_dir(app, DEFAULT_APP_AUTHOR))
+    return _override(env_var or _default_var(app, "CACHE")) or Path(user_cache_dir(app, DEFAULT_APP_AUTHOR))
 
 
 def config_dir(app: str) -> Path:
