@@ -134,6 +134,10 @@ class Settings(BaseSettings):
         """
         Get standard locations to search for settings files, derived dynamically from package name.
         Can be overridden by subclasses to provide custom configuration file search paths.
+
+        Ordered by ascending precedence: `YamlConfigSettingsSource` shallow-merges the files it is
+        given, so a later file's top-level keys replace an earlier one's. Subclasses adding paths
+        must respect that — a bundled default belongs at the front, not the back.
         """
         pkg_name = cls.get_package_name()
         user_cfg = config_dir(pkg_name) / "config.yaml"
@@ -142,7 +146,6 @@ class Settings(BaseSettings):
         locations: list[Path] = [
             Path("/app/config.yaml"),
             Path("/app/instance/config.yaml"),
-            Path("/app/packages/rahti/config.yaml"),
             Path("/config/config.yaml"),
             Path.cwd() / "config.yaml",
             site_cfg,
