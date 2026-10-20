@@ -395,3 +395,167 @@ def test_crash_span_dumper_uses_span_path_for_emoji(capsys: pytest.CaptureFixtur
     finally:
         sys.excepthook = original_excepthook
         crash_buffer_module._crash_span_exporter = None
+
+
+LONG_HTML = "<html>" + "<div>x</div>\n" * 2000 + "</html>"
+
+
+def _crash_with_spans(body, exc_type=RuntimeError):
+    """
+    Run body inside a fresh provider, call the crash hook with the exception that body raises, and return nothing.
+
+    :param body: Callable that opens spans and raises exc_type.
+    """
+    original_excepthook = sys.excepthook
+    crash_buffer_module._crash_span_exporter = None
+    provider = TracerProvider()
+    setup_crash_span_dumper(provider)
+    try:
+        with patch.object(trace, "_TRACER_PROVIDER", provider):
+            try:
+                body()
+            except exc_type as exc:
+                sys.excepthook(type(exc), exc, exc.__traceback__)
+    finally:
+        sys.excepthook = original_excepthook
+        crash_buffer_module._crash_span_exporter = None
+
+
+def test_crash_span_dumper_shows_only_active_branch(capsys: pytest.CaptureFixture[str]):
+    """
+    Verify the crash dump keeps the failing span and its ancestors, and drops siblings and handled errors.
+    """
+
+    def body():
+        with span("root_span"):
+            with span("ok_sibling"):
+                pass
+            try:
+                with span("stale_failure"):
+                    raise ValueError("handled earlier")
+            except ValueError:
+                pass
+            with span("failing_child"):
+                raise RuntimeError("crash")
+
+    _crash_with_spans(body)
+    err = capsys.readouterr().err
+
+    assert "root_span" in err
+    assert "failing_child" in err
+    assert "ok_sibling" not in err
+    assert "stale_failure" not in err
+
+
+def test_crash_span_dumper_falls_back_to_last_span(capsys: pytest.CaptureFixture[str]):
+    """
+    Verify the dump shows the last finished span and a note when no span recorded the exception.
+    """
+
+    def body():
+        with span("first_span"):
+            pass
+        with span("last_span"):
+            pass
+        raise RuntimeError("outside every span")
+
+    _crash_with_spans(body)
+    err = capsys.readouterr().err
+
+    assert "last_span" in err
+    assert "first_span" not in err
+    assert "No span matched the exception" in err
+
+
+SHORT_VALUE = "short value"
+EXACT_VALUE = "e" * crash_buffer_module.MAX_VALUE_LENGTH
+
+
+@pytest.mark.parametrize(
+    ("value", "shortened"),
+    [(SHORT_VALUE, False), (EXACT_VALUE, False), (LONG_HTML, True)],
+    ids=["short", "exact-limit", "long-html"],
+)
+def test_crash_span_dumper_shortens_long_values(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch, value: str, shortened: bool
+):
+    """
+    Verify values over the limit show head, tail and length, and other values show in full.
+    """
+    monkeypatch.setenv("COLUMNS", "1000")  # a narrow console would wrap the value
+
+    def body():
+        with span("failing_span", attributes={"payload": value}):
+            raise RuntimeError("crash")
+
+    _crash_with_spans(body)
+    err = " ".join(capsys.readouterr().err.split())
+
+    if shortened:
+        assert "<html><div>x</div>" in err
+        assert f"({len(value)} chars)" in err
+        assert " ".join(value.split()) not in err
+    else:
+        assert value in err
+        assert "chars)" not in err
+
+
+def test_crash_span_dumper_escapes_rich_markup(capsys: pytest.CaptureFixture[str]):
+    """
+    Verify bracket text in a value does not break the rich output.
+    """
+
+    def body():
+        with span("failing_span", attributes={"payload": "[bold]x[/bold] [/oops]"}):
+            raise RuntimeError("crash")
+
+    _crash_with_spans(body)
+    err = capsys.readouterr().err
+
+    assert "[/oops]" in err
+    assert "Error in sys.excepthook" not in err
+
+
+def test_crash_span_dumper_survives_failing_value():
+    """
+    Verify the original excepthook still runs when a value cannot be rendered.
+    """
+
+    original_excepthook = sys.excepthook
+    previous_hook = MagicMock()
+    sys.excepthook = previous_hook
+    try:
+        with patch.object(crash_buffer_module, "_shorten", side_effect=RuntimeError("render")):
+            crash_buffer_module._crash_span_exporter = None
+            provider = TracerProvider()
+            setup_crash_span_dumper(provider)
+            with patch.object(trace, "_TRACER_PROVIDER", provider):
+                try:
+                    with span("failing_span", attributes={"payload": "ok"}):
+                        raise RuntimeError("crash")
+                except RuntimeError as exc:
+                    sys.excepthook(type(exc), exc, exc.__traceback__)
+        previous_hook.assert_called_once()
+    finally:
+        sys.excepthook = original_excepthook
+        crash_buffer_module._crash_span_exporter = None
+
+
+def test_crash_span_dumper_plain_output_shortens_values(capsys: pytest.CaptureFixture[str]):
+    """
+    Verify the output without rich shows shortened attributes and events.
+    """
+
+    def body():
+        with span("failing_span", attributes={"payload": LONG_HTML}):
+            raise RuntimeError("crash")
+
+    with patch.dict(sys.modules, {"rich": None}):
+        _crash_with_spans(body)
+    err = capsys.readouterr().err
+
+    assert "APPLICATION CRASHED" in err
+    assert "failing_span" in err
+    assert "exception: exception.type=RuntimeError" in err
+    assert f"({len(LONG_HTML)} chars)" in err
+    assert "exception.stacktrace" not in err
