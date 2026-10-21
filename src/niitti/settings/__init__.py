@@ -2,6 +2,7 @@ from niitti.settings.const import DEFAULT_APP_AUTHOR, DEFAULT_APP_NAME
 from niitti.settings.logging import LoggingSettings
 from niitti.settings.sentry import SentrySettings
 from niitti.settings.settings import (
+    ServiceSettings,
     Settings,
     SettingsProxy,
     get_package_metadata,
@@ -14,6 +15,7 @@ __all__ = [
     "DEFAULT_APP_NAME",
     "LoggingSettings",
     "SentrySettings",
+    "ServiceSettings",
     "Settings",
     "SettingsProxy",
     "TelemetrySettings",

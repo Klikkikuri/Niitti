@@ -5,7 +5,7 @@ from importlib.metadata import PackageNotFoundError, metadata
 from pathlib import Path
 from typing import Any, cast
 
-from dotenv import find_dotenv, load_dotenv
+from dotenv import find_dotenv
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -103,13 +103,10 @@ def lint_yaml_settings_files(paths: list[Path]) -> list[Path]:
 class Settings(BaseSettings):
     """
     Base Settings class for Niitti applications (ABC-like base).
-    """
 
-    def __init__(self, *args, **kwargs):
-        # Discover and load .env on instantiation to populate os.environ without import side-effects.
-        if dotenv_path := find_dotenv(usecwd=True):
-            load_dotenv(dotenv_path)
-        super().__init__(*args, **kwargs)
+    Reads only the keyword arguments and the process environment. For the `.env` file, the YAML configuration files
+    and the secrets directory, subclass :class:`ServiceSettings`.
+    """
 
     @classmethod
     def get_package_name(cls) -> str:
@@ -128,6 +125,37 @@ class Settings(BaseSettings):
         """
         pkg_name = cls.get_package_name()
         return get_package_metadata(pkg_name)
+
+    model_config = SettingsConfigDict(
+        extra="ignore",
+        env_nested_delimiter="__",
+    )
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        return init_settings, env_settings
+
+
+class ServiceSettings(Settings):
+    """
+    Settings for a deployed Klikkikuri service.
+
+    Besides the keyword arguments and the environment, reads, in descending precedence:
+
+    - the `.env` file found from the working directory upwards,
+    - `/run/secrets`, when it exists,
+    - the YAML files of :meth:`get_default_config_locations`.
+
+    The `.env` values reach the settings fields only; `os.environ` is not changed. Code that reads `os.environ`
+    itself must load the `.env` file from its entry point.
+    """
 
     @classmethod
     def get_default_config_locations(cls) -> list[Path]:
@@ -160,8 +188,6 @@ class Settings(BaseSettings):
         yaml_file_encoding="utf-8",
         env_file=find_dotenv(usecwd=True) or ".env",
         env_file_encoding="utf-8",
-        extra="ignore",
-        env_nested_delimiter="__",
     )
 
     @classmethod
@@ -172,7 +198,7 @@ class Settings(BaseSettings):
         env_settings: PydanticBaseSettingsSource,
         dotenv_settings: PydanticBaseSettingsSource,
         file_secret_settings: PydanticBaseSettingsSource,
-    ):
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
         yaml_locations = cls.get_default_config_locations()
         return (
             init_settings,

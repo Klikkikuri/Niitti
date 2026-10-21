@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from niitti.logging import get_logger, setup_logging
     from niitti.settings import (
         LoggingSettings,
+        ServiceSettings,
         Settings,
         SettingsProxy,
         TelemetrySettings,
@@ -22,6 +23,7 @@ if TYPE_CHECKING:
 
 _LAZY_EXPORTS: dict[str, str] = {
     "Settings": "niitti.settings",
+    "ServiceSettings": "niitti.settings",
     "SettingsProxy": "niitti.settings",
     "LoggingSettings": "niitti.settings",
     "TelemetrySettings": "niitti.settings",
@@ -34,6 +36,7 @@ _LAZY_EXPORTS: dict[str, str] = {
 
 __all__ = [
     "Settings",
+    "ServiceSettings",
     "SettingsProxy",
     "LoggingSettings",
     "TelemetrySettings",

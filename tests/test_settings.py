@@ -4,6 +4,7 @@ Tests for niitti settings subpackage.
 :purpose: Verify Pydantic settings models, helper functions, and configuration locations.
 """
 
+import os
 from pathlib import Path
 from unittest.mock import patch
 
@@ -12,7 +13,12 @@ from niitti.settings.base import BaseNiittiSettings
 from niitti.settings.const import DEFAULT_APP_AUTHOR, DEFAULT_APP_NAME
 from niitti.settings.logging import LoggingSettings, _default_log_format
 from niitti.settings.sentry import SentrySettings
-from niitti.settings.settings import Settings, get_package_metadata, lint_yaml_settings_files
+from niitti.settings.settings import (
+    ServiceSettings,
+    Settings,
+    get_package_metadata,
+    lint_yaml_settings_files,
+)
 from niitti.settings.telemetry import TelemetrySettings
 
 
@@ -169,9 +175,6 @@ def test_settings_class_methods():
     meta = CustomSettings.get_package_metadata()
     assert isinstance(meta, dict)
 
-    locations = CustomSettings.get_default_config_locations()
-    assert isinstance(locations, list)
-
 
 def test_get_default_config_locations_dynamic_package_name():
     """
@@ -179,7 +182,7 @@ def test_get_default_config_locations_dynamic_package_name():
 
     :return: None
     """
-    class CustomPackageSettings(Settings):
+    class CustomPackageSettings(ServiceSettings):
         pass
 
     locations = CustomPackageSettings.get_default_config_locations()
@@ -198,8 +201,8 @@ def test_meri_settings_mro_and_package_name_derivation():
     locations = MeriSettings.get_default_config_locations()
     assert isinstance(locations, list)
 
-    # Assert settings_customise_sources comes from NiittiSettings via MRO
-    assert MeriSettings.settings_customise_sources.__func__ is Settings.settings_customise_sources.__func__
+    # Assert settings_customise_sources comes from ServiceSettings via MRO
+    assert MeriSettings.settings_customise_sources.__func__ is ServiceSettings.settings_customise_sources.__func__
 
     # Verify identity stamping on instantiation
     inst = MeriSettings()  # type: ignore
@@ -208,31 +211,81 @@ def test_meri_settings_mro_and_package_name_derivation():
 
 def test_import_niitti_settings_no_import_side_effects():
     """
-    Verify importing niitti.settings does not expose module-level load_dotenv.
+    Verify niitti.settings does not load `.env` files into `os.environ`.
 
     :return: None
     """
     import niitti.settings.settings as niitti_settings_module
 
-    assert "load_dotenv()" not in open(niitti_settings_module.__file__, encoding="utf-8").read()
+    assert not hasattr(niitti_settings_module, "load_dotenv")
 
 
-def test_settings_instantiation_loads_dotenv(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+IMPLICIT_SOURCE_VALUE = "from_implicit_source"
+
+
+def _write_implicit_sources(directory: Path) -> Path:
     """
-    Verify Settings instantiation invokes load_dotenv using find_dotenv discovery.
+    Write a `.env`, a `config.yaml` and a secrets directory that each set `NIITTI_TEST_KEY`.
+
+    :param directory: Directory to write into.
+    :return: The secrets directory.
+    """
+    (directory / ".env").write_text(f"NIITTI_TEST_KEY={IMPLICIT_SOURCE_VALUE}\n", encoding="utf-8")
+    (directory / "config.yaml").write_text(f"NIITTI_TEST_KEY: {IMPLICIT_SOURCE_VALUE}\n", encoding="utf-8")
+    secrets = directory / "secrets"
+    secrets.mkdir()
+    (secrets / "NIITTI_TEST_KEY").write_text(IMPLICIT_SOURCE_VALUE, encoding="utf-8")
+    return secrets
+
+
+@pytest.mark.parametrize("source", ["env_file", "secrets_dir", "yaml"])
+def test_settings_reads_no_implicit_sources(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, source: str):
+    """
+    Verify the base Settings ignores `.env`, YAML files and secrets, even when they are configured or present.
 
     :param tmp_path: pytest fixture providing temporary directory.
     :param monkeypatch: pytest monkeypatch fixture.
+    :param source: The implicit source under test.
     :return: None
     """
-    env_file = tmp_path / ".env"
-    env_file.write_text("NIITTI_TEST_DOTENV_KEY=custom_value\n", encoding="utf-8")
-
+    secrets = _write_implicit_sources(tmp_path)
     monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("NIITTI_TEST_DOTENV_KEY", raising=False)
+    monkeypatch.delenv("NIITTI_TEST_KEY", raising=False)
+
+    config = {"env_file": tmp_path / ".env", "secrets_dir": secrets, "yaml": None}
 
     class SubSettings(Settings):
-        NIITTI_TEST_DOTENV_KEY: str = "default"
+        NIITTI_TEST_KEY: str = "default"
 
-    instance = SubSettings()
-    assert instance.NIITTI_TEST_DOTENV_KEY == "custom_value"
+    if config[source] is not None:
+        monkeypatch.setitem(SubSettings.model_config, source, config[source])
+
+    assert SubSettings().NIITTI_TEST_KEY == "default"
+    assert "NIITTI_TEST_KEY" not in os.environ
+
+
+@pytest.mark.parametrize("source", ["env_file", "secrets_dir", "yaml"])
+def test_service_settings_reads_implicit_sources(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, source: str):
+    """
+    Verify ServiceSettings reads `.env`, YAML files and secrets without writing `.env` values to `os.environ`.
+
+    :param tmp_path: pytest fixture providing temporary directory.
+    :param monkeypatch: pytest monkeypatch fixture.
+    :param source: The implicit source under test.
+    :return: None
+    """
+    secrets = _write_implicit_sources(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("NIITTI_TEST_KEY", raising=False)
+
+    class SubSettings(ServiceSettings):
+        NIITTI_TEST_KEY: str = "default"
+
+    # Turn off every source but the one under test.
+    monkeypatch.setitem(SubSettings.model_config, "env_file", tmp_path / ".env" if source == "env_file" else None)
+    monkeypatch.setitem(SubSettings.model_config, "secrets_dir", secrets if source == "secrets_dir" else None)
+    yaml_locations = [tmp_path / "config.yaml"] if source == "yaml" else []
+    monkeypatch.setattr(SubSettings, "get_default_config_locations", classmethod(lambda cls: yaml_locations))
+
+    assert SubSettings().NIITTI_TEST_KEY == IMPLICIT_SOURCE_VALUE
+    assert "NIITTI_TEST_KEY" not in os.environ

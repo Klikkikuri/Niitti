@@ -80,6 +80,22 @@ def extract_article(url: str):
     ...
 ```
 
+### Application Settings
+
+Subclass one of the two settings bases:
+
+- `Settings` reads only the keyword arguments and the environment. Use it when the same command line must give the same
+  result on every machine.
+- `ServiceSettings` also reads, in descending precedence, the `.env` file found from the working directory upwards,
+  `/run/secrets` when it exists, and the YAML files of `get_default_config_locations()`. Override that method to add
+  locations.
+
+Neither writes the `.env` values to `os.environ`. An application that reads `os.environ` itself must load the `.env`
+file from its entry point.
+
+Before this split, `Settings` read all of these sources and loaded `.env` into `os.environ`. A subclass that relies on
+them must now subclass `ServiceSettings`.
+
 ### Long-Running Daemons (Memory Management)
 
 For long-running background services (e.g. `laituri`), clear the crash span buffer after each top-level iteration tick:
