@@ -13,7 +13,10 @@ def _is_module_available(name: str) -> bool:
     """
     try:
         return find_spec(name) is not None
-    except (ModuleNotFoundError, ValueError, AttributeError, ImportError) as e:
+    except ModuleNotFoundError:
+        # The parent package is not installed, as without the `tracing` extra.
+        return False
+    except (ValueError, AttributeError, ImportError) as e:
         # Log caught find_spec exceptions via structlog to prevent silent dropping of errors
         logger.debug("Could not find spec for module", module_name=name, error=str(e), exc_info=True)
         return False

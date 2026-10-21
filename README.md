@@ -61,7 +61,8 @@ shutdown_tracing()
 
 ### Logger Spans & Tracing Context
 
-Use `logger.span(...)` with bound loggers, or `from niitti.tracing import span` for decorators:
+Use `logger.span(...)` with bound loggers, or `from niitti.tracing import span` for decorators. Both need the `tracing`
+extra:
 
 ```python
 from niitti import get_logger
@@ -95,7 +96,7 @@ while True:
 
 `niitti` provides modular optional dependency extras in `pyproject.toml`:
 
-- `logging`: `structlog`
+- `logging`: `structlog` and the `settings` extra. Trace context in log records needs the `tracing` extra.
 - `tracing`: `opentelemetry-sdk`, `opentelemetry-instrumentation-logging`, `sentry-sdk`
-- `settings`: `pydantic`, `pydantic-settings`
+- `settings`: `pydantic`, `pydantic-settings`, `python-dotenv`, `pyyaml`, `structlog`
 - `all`: Installs all optional dependencies (`niitti[logging,settings,tracing]`)

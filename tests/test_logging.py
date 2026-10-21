@@ -5,6 +5,8 @@ Tests for niitti logging subpackage.
 """
 
 import logging
+import subprocess
+import sys
 from unittest.mock import MagicMock, patch
 
 from niitti.logging import (
@@ -176,3 +178,28 @@ def test_setup_logging_default_fallback():
     """
     setup_logging(None)
     assert get_active_logging_settings() is not None
+
+
+WITHOUT_OPENTELEMETRY = """
+import sys
+
+sys.modules["opentelemetry"] = None  # Make every OpenTelemetry import fail, as without the `tracing` extra.
+
+from niitti.logging import add_opentelemetry_context, get_logger, setup_logging
+
+setup_logging(force=True)
+get_logger(__name__).info("logged without OpenTelemetry")
+assert add_opentelemetry_context(None, "info", {"event": "x"}) == {"event": "x"}
+"""
+
+
+def test_logging_without_opentelemetry():
+    """
+    Verify niitti.logging imports, sets up and logs without OpenTelemetry installed.
+
+    :return: None
+    """
+    result = subprocess.run([sys.executable, "-c", WITHOUT_OPENTELEMETRY], capture_output=True, text=True, check=False)
+
+    assert result.returncode == 0, result.stderr
+    assert "logged without OpenTelemetry" in result.stderr

@@ -3,8 +3,14 @@ Structlog processors for injecting OpenTelemetry tracing context and baggage.
 """
 
 from typing import Any
-from opentelemetry import baggage, trace
+
 from structlog.types import EventDict
+
+try:
+    from opentelemetry import baggage, trace
+except ImportError:  # The `tracing` extra is not installed: log records carry no trace context.
+    baggage = None  # type: ignore[assignment]
+    trace = None  # type: ignore[assignment]
 
 BAGGAGE_KEYS = {
     "request_id",
@@ -18,7 +24,7 @@ def add_opentelemetry_context(logger: Any, method_name: str, event_dict: EventDi
 
     Shortens trace_id and span_id to 8 characters for concise display while
     storing full IDs in trace_id_full and span_id_full. Removes otel_baggage
-    when empty.
+    when empty. Returns event_dict unchanged when OpenTelemetry is not installed.
 
     :param logger: Structlog logger instance.
     :param method_name: Method name invoked on logger.
@@ -26,6 +32,9 @@ def add_opentelemetry_context(logger: Any, method_name: str, event_dict: EventDi
     :return: Updated event dictionary.
     """
     from niitti.logging.config import get_active_logging_settings
+
+    if trace is None or baggage is None:
+        return event_dict
 
     span = trace.get_current_span()
     if span.is_recording():

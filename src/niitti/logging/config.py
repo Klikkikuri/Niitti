@@ -4,7 +4,6 @@ Logging configuration setup for niitti applications.
 
 import logging
 import structlog
-from opentelemetry.instrumentation.logging import LoggingInstrumentor
 
 from typing import Any
 
@@ -21,6 +20,8 @@ class NiittiBoundLogger(structlog.stdlib.BoundLogger):
     def span(self, name: str, **attrs: Any):
         """
         Create an OpenTelemetry span context manager associated with this logger's module name.
+
+        Needs the `tracing` extra.
         """
         from niitti.tracing.span import span as _span
 
@@ -150,10 +151,16 @@ def setup_logging(settings: LoggingSettings | None = None, force: bool = False) 
         # adding its own handler to the root logger - this is root logging
         # configuration just like the handler above, so it's gated the same way:
         # only applied when niitti owns root logging (force, or nothing else has
-        # configured it yet).
-        instrumentor = LoggingInstrumentor()
-        if not getattr(instrumentor, "is_instrumented_by_opentelemetry", False):
-            instrumentor.instrument()
+        # configured it yet). Without the `tracing` extra there is no trace context to inject.
+        try:
+            from opentelemetry.instrumentation.logging import LoggingInstrumentor
+        except ImportError:
+            LoggingInstrumentor = None
+
+        if LoggingInstrumentor is not None:
+            instrumentor = LoggingInstrumentor()
+            if not getattr(instrumentor, "is_instrumented_by_opentelemetry", False):
+                instrumentor.instrument()
     else:
         logger.debug(
             "Root logger already has handlers configured by the application; "
